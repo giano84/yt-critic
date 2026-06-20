@@ -6,11 +6,11 @@ Chiama Claude con web search per l'analisi critica.
 Variabili d'ambiente Railway:
   ANTHROPIC_API_KEY  — da console.anthropic.com
   SECRET_KEY         — stringa casuale lunga
-  FREE_DAILY_LIMIT   — analisi gratis al giorno (default: 1)
+  FREE_TOTAL_LIMIT   — analisi gratis a vita per utente (default: 3)
+  UPGRADE_URL        — link alla pagina di acquisto
 """
 
-import os, re, hashlib, datetime
-from collections import defaultdict
+import os, re, hashlib, sqlite3
 from contextlib import asynccontextmanager
 
 import anthropic
@@ -20,25 +20,40 @@ from pydantic import BaseModel
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 SECRET_KEY        = os.environ.get("SECRET_KEY", "change-me")
-FREE_DAILY_LIMIT  = int(os.environ.get("FREE_DAILY_LIMIT", "1"))
+FREE_TOTAL_LIMIT  = int(os.environ.get("FREE_TOTAL_LIMIT", "3"))
+UPGRADE_URL       = os.environ.get("UPGRADE_URL", "https://buymeacoffee.com/ytcritic")
 MODEL             = "claude-sonnet-4-6"
+DB_PATH           = "/tmp/ytcritic.db"
 
-# ── Rate limiting in-memory ───────────────────────────────────────────────────
+# ── SQLite — usage persistente ────────────────────────────────────────────────
 
-usage: dict[str, int] = defaultdict(int)
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS usage (token TEXT PRIMARY KEY, total INTEGER NOT NULL DEFAULT 0)"
+    )
+    conn.commit()
+    return conn
 
-def rate_key(token: str) -> str:
-    today = datetime.date.today().isoformat()
-    h = hashlib.sha256(f"{SECRET_KEY}:{token}".encode()).hexdigest()[:16]
-    return f"{today}:{h}"
+def user_key(token: str) -> str:
+    return hashlib.sha256(f"{SECRET_KEY}:{token}".encode()).hexdigest()[:32]
 
-def check_and_increment(token: str) -> tuple[bool, int]:
-    key = rate_key(token)
-    n = usage[key]
-    if n >= FREE_DAILY_LIMIT:
-        return False, 0
-    usage[key] = n + 1
-    return True, FREE_DAILY_LIMIT - (n + 1)
+def get_usage(token: str) -> int:
+    key = user_key(token)
+    with get_db() as conn:
+        row = conn.execute("SELECT total FROM usage WHERE token = ?", (key,)).fetchone()
+        return row[0] if row else 0
+
+def increment_usage(token: str) -> int:
+    key = user_key(token)
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO usage (token, total) VALUES (?, 1) ON CONFLICT(token) DO UPDATE SET total = total + 1",
+            (key,)
+        )
+        conn.commit()
+        row = conn.execute("SELECT total FROM usage WHERE token = ?", (key,)).fetchone()
+        return row[0]
 
 # ── Claude con web search ─────────────────────────────────────────────────────
 
@@ -100,9 +115,10 @@ def analyze_with_claude(title: str, transcript: str) -> str:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    get_db()
     if not ANTHROPIC_API_KEY:
         print("⚠️  WARNING: ANTHROPIC_API_KEY not set!")
-    print(f"✅ YT Critic API ready — model: {MODEL}")
+    print(f"✅ YT Critic API ready — model: {MODEL} | free limit: {FREE_TOTAL_LIMIT}")
     yield
 
 
@@ -119,14 +135,16 @@ app.add_middleware(
 class AnalyzeRequest(BaseModel):
     url: str
     user_token: str
-    transcript: str   # estratto dal browser dall'estensione Chrome
+    transcript: str
     title: str = "Video"
 
 
 class AnalyzeResponse(BaseModel):
     title: str
     analysis: str
-    remaining_today: int
+    used_total: int
+    remaining: int
+    free_limit: int
 
 
 @app.get("/health")
@@ -136,12 +154,12 @@ def health():
 
 @app.get("/limit")
 def get_limit(user_token: str):
-    key = rate_key(user_token)
-    used = usage[key]
+    used = get_usage(user_token)
     return {
-        "used_today": used,
-        "limit": FREE_DAILY_LIMIT,
-        "remaining": max(0, FREE_DAILY_LIMIT - used),
+        "used_total": used,
+        "free_limit": FREE_TOTAL_LIMIT,
+        "remaining": max(0, FREE_TOTAL_LIMIT - used),
+        "upgrade_url": UPGRADE_URL,
     }
 
 
@@ -153,21 +171,25 @@ async def analyze(req: AnalyzeRequest):
     if not req.transcript or len(req.transcript) < 100:
         raise HTTPException(422, "Transcript too short or missing")
 
-    allowed, remaining = check_and_increment(req.user_token)
-    if not allowed:
+    used = get_usage(req.user_token)
+    if used >= FREE_TOTAL_LIMIT:
         raise HTTPException(
-            429,
-            f"Daily limit of {FREE_DAILY_LIMIT} free analyses reached. Come back tomorrow."
+            402,
+            f"You have used all {FREE_TOTAL_LIMIT} free analyses. Upgrade to continue: {UPGRADE_URL}"
         )
 
     try:
         analysis = analyze_with_claude(req.title, req.transcript)
-        return AnalyzeResponse(
-            title=req.title,
-            analysis=analysis,
-            remaining_today=remaining,
-        )
     except RuntimeError as e:
         raise HTTPException(502, str(e))
     except Exception as e:
         raise HTTPException(500, f"Internal error: {e}")
+
+    new_total = increment_usage(req.user_token)
+    return AnalyzeResponse(
+        title=req.title,
+        analysis=analysis,
+        used_total=new_total,
+        remaining=max(0, FREE_TOTAL_LIMIT - new_total),
+        free_limit=FREE_TOTAL_LIMIT,
+    )

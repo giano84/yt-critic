@@ -34,6 +34,19 @@ function showError(msg) {
   el("errorBox").classList.add("visible");
 }
 
+function showUpgradePrompt() {
+  el("loader").style.display = "none";
+  el("errorBox").innerHTML = `
+    <strong>Your 3 free analyses are used up.</strong><br><br>
+    Upgrade to YT Critic Pro to keep fact-checking without limits.<br><br>
+    <a href="https://www.paypal.com/paypalme/giano84" target="_blank"
+       style="display:inline-block;margin-top:8px;padding:10px 20px;background:#ff0000;color:#fff;border-radius:6px;text-decoration:none;font-weight:600;">
+      Upgrade via PayPal →
+    </a>
+  `;
+  el("errorBox").classList.add("visible");
+}
+
 function markdownToHtml(md) {
   return md
     .replace(/^## (.+)$/gm, "<h2>$1</h2>")
@@ -244,7 +257,7 @@ async function callClaude(title, transcript, userToken, videoUrl) {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Server error" }));
-    if (res.status === 429) throw new Error(`Daily limit reached.\n${err.detail}`);
+    if (res.status === 402) throw { upgrade: true, message: err.detail };
     throw new Error(`Server error ${res.status}: ${err.detail}`);
   }
 
@@ -299,11 +312,18 @@ async function run() {
     el("resultTitle").textContent = data.title;
     el("resultBody").innerHTML = markdownToHtml(data.analysis);
     el("result").classList.add("visible");
-    if (data.remaining_today != null)
-      el("quota").textContent = `${data.remaining_today} free analyses left today`;
+    if (data.remaining != null) {
+      el("quota").textContent = data.remaining > 0
+        ? `${data.remaining} free ${data.remaining === 1 ? "analysis" : "analyses"} left`
+        : "Free trial ended — upgrade to continue";
+    }
 
   } catch(e) {
     clearTimeout(warnTimer);
+    if (e && e.upgrade) {
+      showUpgradePrompt();
+      return;
+    }
     showError(e.message || "Could not reach the server.");
   }
 }
