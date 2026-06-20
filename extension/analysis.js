@@ -39,7 +39,7 @@ function showUpgradePrompt() {
   el("errorBox").innerHTML = `
     <strong>Your 3 free analyses are used up.</strong><br><br>
     Upgrade to YT Critic Pro to keep fact-checking without limits.<br><br>
-    <a href="https://www.paypal.com/paypalme/giano84" target="_blank"
+    <a href="https://paypal.me/giovannigrifa" target="_blank"
        style="display:inline-block;margin-top:8px;padding:10px 20px;background:#ff0000;color:#fff;border-radius:6px;text-decoration:none;font-weight:600;">
       Upgrade via PayPal →
     </a>

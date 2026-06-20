@@ -21,7 +21,7 @@ from pydantic import BaseModel
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 SECRET_KEY        = os.environ.get("SECRET_KEY", "change-me")
 FREE_TOTAL_LIMIT  = int(os.environ.get("FREE_TOTAL_LIMIT", "3"))
-UPGRADE_URL       = os.environ.get("UPGRADE_URL", "https://buymeacoffee.com/ytcritic")
+UPGRADE_URL       = os.environ.get("UPGRADE_URL", "https://paypal.me/giovannigrifa")
 MODEL             = "claude-sonnet-4-6"
 DB_PATH           = "/tmp/ytcritic.db"
 
