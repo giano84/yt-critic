@@ -73,16 +73,16 @@ def analyze_with_claude(title: str, transcript: str) -> str:
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-    response = client.messages.create(
+    response = client.beta.messages.create(
         model=MODEL,
         max_tokens=2048,
+        betas=["web-search-2025-03-05"],
         system=SYSTEM_PROMPT,
         tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 5}],
         messages=[{
             "role": "user",
             "content": f'Analyze this YouTube video titled "{title}".\n\nTRANSCRIPT:\n{transcript}'
         }],
-        betas=["web-search-2025-03-05"],
     )
 
     text_parts = [
