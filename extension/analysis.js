@@ -165,15 +165,51 @@ async function getTranscriptFromTab(tabId) {
           } catch(_) {}
         }
 
-        // Strategia 4: pannello UI aperto (supporta nuovo e vecchio selettore)
+        // Strategia 4: apri il pannello trascrizione e leggi i segmenti
         const SEGMENT_SEL = "transcript-segment-view-model, ytd-transcript-segment-renderer";
         const TEXT_SEL    = "span[role='text'], .segment-text, yt-formatted-string";
-        const segments = document.querySelectorAll(SEGMENT_SEL);
-        if (segments.length > 5) {
-          const text = Array.from(segments)
+
+        const poll = (ms) => new Promise(r => setTimeout(r, ms));
+
+        const extractSegments = () => {
+          const segs = document.querySelectorAll(SEGMENT_SEL);
+          if (segs.length < 3) return null;
+          const text = Array.from(segs)
             .map(s => s.querySelector(TEXT_SEL)?.textContent?.trim() || "")
             .filter(t => t).join(" ").replace(/\s+/g, " ").trim();
-          if (text.length > 30) return { transcript: text, title, source: "ui-panel" };
+          return text.length > 30 ? text : null;
+        };
+
+        // Already open?
+        let panelText = extractSegments();
+        if (panelText) return { transcript: panelText, title, source: "ui-panel" };
+
+        // Try direct transcript button
+        const directBtn = document.querySelector(
+          'button[aria-label*="transcript" i], button[aria-label*="trascrizione" i], [aria-label*="Open transcript" i]'
+        );
+        if (directBtn) {
+          directBtn.click();
+        } else {
+          // Open the "..." more actions menu
+          const moreBtn = document.querySelector(
+            'button[aria-label="More actions"], #button-shape button[aria-label="More actions"], ytd-menu-renderer yt-icon-button button'
+          );
+          if (moreBtn) {
+            moreBtn.click();
+            await poll(1200);
+            const menuItem = [...document.querySelectorAll(
+              'ytd-menu-service-item-renderer, tp-yt-paper-item, yt-list-item-view-model'
+            )].find(el => /transcript|trascrizione/i.test(el.textContent));
+            if (menuItem) menuItem.click();
+          }
+        }
+
+        // Wait up to 8s for segments to appear
+        for (let i = 0; i < 80; i++) {
+          await poll(100);
+          panelText = extractSegments();
+          if (panelText) return { transcript: panelText, title, source: "ui-panel-click" };
         }
 
         return {
