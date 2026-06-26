@@ -1,6 +1,7 @@
 // analysis.js — YT Critic v2
 
-const API_BASE = "https://web-production-9c48.up.railway.app";
+const API_BASE    = "https://web-production-9c48.up.railway.app";
+const UPGRADE_URL = "https://grifa84.gumroad.com/l/pratft";
 
 const SYSTEM_PROMPT = `You must respond exclusively in English.
 
@@ -37,14 +38,65 @@ function showError(msg) {
 function showUpgradePrompt() {
   el("loader").style.display = "none";
   el("errorBox").innerHTML = `
-    <strong>Your 3 free analyses are used up.</strong><br><br>
-    Upgrade to YT Critic Pro to keep fact-checking without limits.<br><br>
-    <a href="https://paypal.me/giovannigrifa" target="_blank"
-       style="display:inline-block;margin-top:8px;padding:10px 20px;background:#ff0000;color:#fff;border-radius:6px;text-decoration:none;font-weight:600;">
-      Upgrade via PayPal →
+    <strong>Your free analyses are used up.</strong><br><br>
+    Get <strong>50 more analyses for €4.99</strong> — one-time payment, no subscription.<br><br>
+    <a href="${UPGRADE_URL}" target="_blank"
+       style="display:inline-block;padding:10px 20px;background:#ff0000;color:#fff;border-radius:6px;text-decoration:none;font-weight:600;">
+      Buy 50 analyses — €4.99 →
     </a>
+    <div style="margin-top:14px;font-size:12px;color:#888;">Already purchased? Enter your license key:</div>
+    <div style="display:flex;gap:8px;margin-top:6px;">
+      <input id="licenseInput" type="text" placeholder="XXXX-XXXX-XXXX-XXXX"
+        style="flex:1;padding:8px 10px;background:#1a1a1a;border:1px solid #444;border-radius:6px;color:#fff;font-size:12px;outline:none;" />
+      <button id="redeemBtn"
+        style="padding:8px 14px;background:#222;border:1px solid #444;border-radius:6px;color:#fff;cursor:pointer;font-size:12px;white-space:nowrap;">
+        Activate
+      </button>
+    </div>
+    <div id="redeemMsg" style="margin-top:8px;font-size:12px;min-height:16px;"></div>
   `;
   el("errorBox").classList.add("visible");
+
+  document.getElementById("redeemBtn").addEventListener("click", async () => {
+    const key    = document.getElementById("licenseInput").value.trim();
+    const msgEl  = document.getElementById("redeemMsg");
+    const btn    = document.getElementById("redeemBtn");
+
+    if (!key) {
+      msgEl.style.color = "#ff8080";
+      msgEl.textContent = "Please enter a license key.";
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = "Checking…";
+    msgEl.textContent = "";
+
+    try {
+      let { userToken } = await chrome.storage.local.get("userToken");
+      const res = await fetch(`${API_BASE}/redeem`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_token: userToken, license_key: key }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        msgEl.style.color = "#4caf50";
+        msgEl.textContent = `✅ Activated! ${data.remaining} analyses unlocked. Close and retry.`;
+        btn.textContent = "✅ Done";
+      } else {
+        msgEl.style.color = "#ff8080";
+        msgEl.textContent = `❌ ${data.detail || "Invalid key."}`;
+        btn.disabled = false;
+        btn.textContent = "Activate";
+      }
+    } catch (_) {
+      msgEl.style.color = "#ff8080";
+      msgEl.textContent = "❌ Network error — please retry.";
+      btn.disabled = false;
+      btn.textContent = "Activate";
+    }
+  });
 }
 
 function markdownToHtml(md) {
